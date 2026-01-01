@@ -1,0 +1,56 @@
+# Ignore all old/legacy scripts
+epub_to_md.py
+chunk_markdown.py
+chunk_markdown_fixed.py
+epub_to_chunks_complete.py
+pdf_to_chunks_complete.py
+*.cmd
+README_CONVERTER.md
+convert_epub_to_chunks.cmd
+convert_epubs.cmd
+convert_pdf_to_md.cmd
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+*.md
+!README.md
+*.epub
+*.pdf
+converted_markdown/
+chunked_markdown/
