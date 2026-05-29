@@ -1,6 +1,10 @@
-# EPUB/PDF/FB2/DJVU to Markdown Converter
+# ebook2md
 
-A Python script to batch-convert EPUB, PDF, FB2, and DJVU files to Markdown format.
+Convert EPUB, PDF, FB2, and DJVU files to clean Markdown.
+
+## Why
+
+LLMs like Claude can process ebooks directly, but you pay for every token of raw EPUB/PDF markup, embedded metadata, and formatting overhead. By pre-converting to Markdown you feed the model only the actual text content, which significantly reduces token usage and cost. This script does that conversion locally, in batch, for free.
 
 ## Supported Formats
 
@@ -96,3 +100,21 @@ The DJVU file is an image-only scan with no embedded OCR text. You will need to 
 
 ### Permission errors
 Make sure you have write permissions in the directory.
+
+## Building a Standalone Executable
+
+You can package the script as a single `.exe` using PyInstaller so it runs on machines without Python installed.
+
+### Prerequisites
+
+```bash
+pip install pyinstaller ebooklib html2text pymupdf lxml
+```
+
+### Build
+
+```bash
+pyinstaller --onefile --name ebook2md convert_to_md.py
+```
+
+The executable will be in the `dist/` folder. DJVU support still requires DjVuLibre to be installed separately (the `.exe` calls `djvutxt` as an external process).
