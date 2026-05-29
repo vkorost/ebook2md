@@ -1,80 +1,98 @@
-# EPUB/PDF to Markdown Converter
+# EPUB/PDF/FB2/DJVU to Markdown Converter
 
-A simple Python script to convert EPUB and PDF files to Markdown format.
+A Python script to batch-convert EPUB, PDF, FB2, and DJVU files to Markdown format.
+
+## Supported Formats
+
+| Format | Library / Tool | Install |
+|--------|---------------|---------|
+| EPUB | `ebooklib` + `html2text` | `pip install ebooklib html2text` |
+| PDF | `pymupdf` (PyMuPDF) | `pip install pymupdf` |
+| FB2 | `lxml` | `pip install lxml` |
+| DJVU | DjVuLibre (`djvutxt`) | `winget install DjVuLibre.DjView` |
 
 ## Features
 
-- **Unified Converter**: Handles both EPUB and PDF files in a single script
-- **Batch Processing**: Converts all EPUB and PDF files in the current directory
-- **Simple Output**: Creates .md files with the same base filename as the source
-- **No Chunking**: Outputs complete files (no splitting into chunks)
-- **Metadata Extraction**: Includes title and author information in the output
+- **Batch Processing**: Converts all supported files in the current directory in one run
+- **Graceful Degradation**: Missing libraries are detected at startup; unsupported formats are skipped with a warning
+- **Metadata Extraction**: Title and author are pulled from file metadata (EPUB, PDF, FB2) or parsed from the filename (DJVU)
+- **Markdown Cleanup**: Strips excessive whitespace, duplicate headers/footers, lone page numbers, and internal navigation links
+- **Heading Detection**: Automatically promotes ALL-CAPS lines and numbered sections to Markdown headings (PDF, DJVU)
+- **FB2 Structure Preservation**: Converts sections, epigraphs, citations, poems, emphasis, and strong markup to proper Markdown
+- **DJVU Non-ASCII Handling**: Transparently copies files with non-ASCII filenames to a temp path so `djvutxt` can process them
+- **Simple Output**: Creates `.md` files with the same base filename as the source -- no chunking, no subdirectories
 
 ## Installation
 
-### Requirements
-
-Install the required Python packages:
+Install only the libraries you need:
 
 ```bash
-# For EPUB support
-pip install ebooklib html2text
+# All formats
+pip install ebooklib html2text pymupdf lxml
 
-# For PDF support
-pip install pymupdf
+# Or pick and choose
+pip install ebooklib html2text   # EPUB
+pip install pymupdf              # PDF
+pip install lxml                 # FB2
+```
 
-# Or install both
-pip install ebooklib html2text pymupdf
+For DJVU support, install DjVuLibre so that `djvutxt` is on your PATH (or in `C:\Program Files\DjVuLibre\`):
+
+```bash
+winget install DjVuLibre.DjView
 ```
 
 ## Usage
 
 ### Method 1: Copy the script to your folder
 
-1. Copy `convert_to_md.py` to the folder containing your EPUB/PDF files
-2. Open a command prompt in that folder
+1. Copy `convert_to_md.py` to the folder containing your files
+2. Open a terminal in that folder
 3. Run: `python convert_to_md.py`
 
 ### Method 2: Run from this directory
 
-1. Place your EPUB/PDF files in this directory
+1. Place your files in this directory
 2. Double-click `convert.bat` (Windows) or run `python convert_to_md.py`
 
 ### What it does
 
-- Scans the current directory for all `.epub` and `.pdf` files
-- Converts each file to Markdown format
+- Scans the current directory for `.epub`, `.pdf`, `.fb2`, and `.djvu` files
+- Converts each file to Markdown
 - Outputs files with the same name but `.md` extension
-- Example: `MyBook.epub` → `MyBook.md`
+- Example: `MyBook.epub` -> `MyBook.md`
 
 ## Output Format
 
 Each converted file includes:
 - Title (from metadata or filename)
-- Author (from metadata)
+- Author (from metadata or filename pattern `Author - Title`)
 - Full content in Markdown format
+
+## Limitations
+
+This script extracts **existing text** from source files. It does not perform OCR. Scanned PDFs and image-only DJVUs that contain no embedded text layer will produce empty output and be skipped.
+
+For scanned PDFs that require OCR, see [pdf2md](https://github.com/vkorost/pdf2md).
 
 ## Notes
 
-- The script will skip file types it doesn't have libraries for (will show warnings)
-- Original files are not modified or deleted
-- Conversion happens in the current working directory
+- The script skips formats whose libraries are not installed (warnings are shown at startup)
+- Original files are never modified or deleted
+- Conversion runs in the current working directory
 - Special characters in filenames are handled automatically
-
-## Legacy Scripts
-
-This folder also contains older scripts with chunking functionality:
-- `epub_to_md.py` - EPUB to MD (no chunking)
-- `epub_to_chunks_complete.py` - EPUB to MD with chunking
-- `pdf_to_chunks_complete.py` - PDF to MD with chunking
+- DJVU files without a text layer (image-only scans) will be skipped with a warning
 
 ## Troubleshooting
 
 ### "No conversion libraries available"
-Install the required packages using pip (see Installation section above)
+Install at least one set of dependencies (see Installation above).
 
-### "No EPUB or PDF files found"
-Make sure you're running the script in a directory that contains .epub or .pdf files
+### "No supported files found"
+Make sure the script is running in a directory that contains `.epub`, `.pdf`, `.fb2`, or `.djvu` files.
+
+### DJVU: "No text layer found"
+The DJVU file is an image-only scan with no embedded OCR text. You will need to OCR it first.
 
 ### Permission errors
-Make sure you have write permissions in the directory
+Make sure you have write permissions in the directory.
