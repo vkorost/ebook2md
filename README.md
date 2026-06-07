@@ -50,14 +50,14 @@ winget install DjVuLibre.DjView
 
 ### Method 1: Copy the script to your folder
 
-1. Copy `convert_to_md.py` to the folder containing your files
+1. Copy `ebook2md.py` to the folder containing your files
 2. Open a terminal in that folder
-3. Run: `python convert_to_md.py`
+3. Run: `python ebook2md.py`
 
 ### Method 2: Run from this directory
 
 1. Place your files in this directory
-2. Double-click `convert.bat` (Windows) or run `python convert_to_md.py`
+2. Double-click `ebook2md.bat` (Windows) or run `python ebook2md.py`
 
 ### What it does
 
@@ -114,7 +114,7 @@ pip install pyinstaller ebooklib html2text pymupdf lxml
 ### Build
 
 ```bash
-pyinstaller --onefile --name ebook2md convert_to_md.py
+pyinstaller --onefile --name ebook2md ebook2md.py
 ```
 
 The executable will be in the `dist/` folder. DJVU support still requires DjVuLibre to be installed separately (the `.exe` calls `djvutxt` as an external process).

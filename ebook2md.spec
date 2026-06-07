@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['convert_to_md.py'],
+    ['ebook2md.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -27,7 +27,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='convert_to_md',
+    name='ebook2md',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
