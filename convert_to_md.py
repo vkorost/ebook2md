@@ -107,7 +107,7 @@ def extract_text_from_epub(epub_path):
                 markdown_text = re.sub(r'^\s+|\s+$', '', markdown_text, flags=re.MULTILINE)  # Trim whitespace
 
                 # Remove table of contents links and improve formatting
-                markdown_text = re.sub(r'\[.*?\]\(.*?\.html.*?\)', '', markdown_text)  # Remove internal links
+                markdown_text = re.sub(r'\[[^\]]*\]\([^\)]*\.html[^\)]*\)', '', markdown_text)  # Remove internal links
                 markdown_text = re.sub(r'\n\s*\d+\.\s*$', '', markdown_text, flags=re.MULTILINE)  # Remove hanging numbers
 
                 if markdown_text.strip():
