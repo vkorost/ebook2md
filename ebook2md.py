@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Unified EPUB, PDF, FB2, and DJVU to Markdown Converter
-Converts all EPUB, PDF, FB2, and DJVU files in the current directory to Markdown format
+Unified EPUB, PDF, FB2, DJVU, DOC, and DOCX to Markdown Converter
+Converts all EPUB, PDF, FB2, DJVU, DOC, and DOCX files in the current directory to Markdown format
 """
 
 import os
@@ -40,6 +40,43 @@ except ImportError:
     FB2_AVAILABLE = False
     print("WARNING: lxml not found. FB2 conversion will be skipped.")
     print("To enable FB2 support, run: pip install lxml")
+
+# Try importing DOCX libraries
+try:
+    from docx import Document as DocxDocument
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    print("WARNING: python-docx not found. DOC/DOCX conversion will be skipped.")
+    print("To enable DOC/DOCX support, run: pip install python-docx")
+
+# Check for .doc conversion capability (MS Word via COM or LibreOffice)
+DOC_CONVERTER = None  # 'word' or 'soffice'
+if DOCX_AVAILABLE:
+    try:
+        import win32com.client
+        DOC_CONVERTER = 'word'
+    except ImportError:
+        pass
+    if DOC_CONVERTER is None:
+        SOFFICE_PATH = None
+        _soffice_candidates = [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ]
+        for _p in _soffice_candidates:
+            if os.path.isfile(_p):
+                SOFFICE_PATH = _p
+                break
+        if SOFFICE_PATH is None:
+            SOFFICE_PATH = shutil.which("soffice")
+        if SOFFICE_PATH:
+            DOC_CONVERTER = 'soffice'
+DOC_AVAILABLE = DOCX_AVAILABLE and DOC_CONVERTER is not None
+if DOCX_AVAILABLE and not DOC_AVAILABLE:
+    print("NOTE: No .doc converter found. Legacy .doc files will be skipped (DOCX still works).")
+    print("To enable .doc support, install pywin32: pip install pywin32")
 
 # Check for DjVuLibre (djvutxt command)
 DJVUTXT_PATH = None
@@ -375,6 +412,218 @@ def extract_text_from_fb2(fb2_path):
         return None
 
 
+def extract_text_from_docx(docx_path):
+    """Extract text content from DOCX file, preserving structure as Markdown"""
+    if not DOCX_AVAILABLE:
+        return None
+
+    try:
+        doc = DocxDocument(str(docx_path))
+
+        # Extract metadata from core properties
+        title = None
+        author = 'Unknown Author'
+        if doc.core_properties:
+            if doc.core_properties.title:
+                title = doc.core_properties.title.strip()
+            if doc.core_properties.author:
+                author = doc.core_properties.author.strip()
+
+        if not title:
+            title = docx_path.stem.replace('_', ' ')
+
+        content = []
+        content.append(f"# {title}")
+        content.append(f"**Author:** {author}")
+        content.append("")
+
+        for element in doc.element.body:
+            tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
+
+            if tag == 'p':
+                # Process paragraph
+                from docx.text.paragraph import Paragraph
+                para = Paragraph(element, doc)
+                md_line = _docx_paragraph_to_md(para)
+                if md_line is not None:
+                    content.append(md_line)
+
+            elif tag == 'tbl':
+                # Process table
+                from docx.table import Table
+                table = Table(element, doc)
+                table_md = _docx_table_to_md(table)
+                if table_md:
+                    content.append(table_md)
+
+        result = '\n'.join(content)
+        # Clean up excessive blank lines
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        return result
+
+    except Exception as e:
+        print(f"  [ERROR] Failed to process DOCX: {str(e)}")
+        return None
+
+
+def _docx_paragraph_to_md(para):
+    """Convert a python-docx Paragraph to a markdown line."""
+    style_name = (para.style.name or '').lower() if para.style else ''
+
+    # Detect heading level from style
+    if style_name.startswith('heading'):
+        level_str = style_name.replace('heading', '').strip()
+        try:
+            level = int(level_str)
+        except ValueError:
+            level = 2
+        text = _docx_runs_to_md(para.runs)
+        if text.strip():
+            return f"\n{'#' * level} {text.strip()}\n"
+        return ""
+
+    # Detect list items
+    if style_name.startswith('list'):
+        text = _docx_runs_to_md(para.runs)
+        if text.strip():
+            return f"- {text.strip()}"
+        return ""
+
+    # Check numbering XML for bullets/numbered lists not caught by style name
+    numPr = para._element.find('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}numPr')
+    if numPr is not None:
+        text = _docx_runs_to_md(para.runs)
+        if text.strip():
+            return f"- {text.strip()}"
+        return ""
+
+    # Block quote style
+    if 'quote' in style_name:
+        text = _docx_runs_to_md(para.runs)
+        if text.strip():
+            return f"> {text.strip()}\n"
+        return ""
+
+    # Normal paragraph
+    text = _docx_runs_to_md(para.runs)
+    if text.strip():
+        return f"{text.strip()}\n"
+    return ""
+
+
+def _docx_runs_to_md(runs):
+    """Convert a list of Run objects to markdown text with inline formatting."""
+    parts = []
+    for run in runs:
+        text = run.text or ''
+        if not text:
+            continue
+        if run.bold and run.italic:
+            parts.append(f"***{text}***")
+        elif run.bold:
+            parts.append(f"**{text}**")
+        elif run.italic:
+            parts.append(f"*{text}*")
+        else:
+            parts.append(text)
+    return ''.join(parts)
+
+
+def _docx_table_to_md(table):
+    """Convert a python-docx Table to markdown table format."""
+    rows = table.rows
+    if not rows:
+        return ""
+
+    md_rows = []
+    for row in rows:
+        cells = [cell.text.strip().replace('|', '\\|').replace('\n', ' ') for cell in row.cells]
+        md_rows.append('| ' + ' | '.join(cells) + ' |')
+
+    if len(md_rows) >= 1:
+        # Insert separator after first row (header)
+        num_cols = len(rows[0].cells)
+        separator = '| ' + ' | '.join(['---'] * num_cols) + ' |'
+        md_rows.insert(1, separator)
+
+    return '\n' + '\n'.join(md_rows) + '\n'
+
+
+def extract_text_from_doc(doc_path):
+    """Extract text from legacy .doc file by converting to .docx first"""
+    if not DOC_AVAILABLE:
+        return None
+
+    try:
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            if DOC_CONVERTER == 'word':
+                return _convert_doc_via_word(doc_path, tmp_dir)
+            else:
+                return _convert_doc_via_soffice(doc_path, tmp_dir)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"  [ERROR] Failed to process DOC: {str(e)}")
+        return None
+
+
+def _convert_doc_via_word(doc_path, tmp_dir):
+    """Convert .doc to .docx using MS Word COM automation, then extract."""
+    import win32com.client
+
+    word = None
+    doc = None
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = False
+
+        # Word requires absolute Windows paths
+        abs_path = str(Path(doc_path).resolve())
+        doc = word.Documents.Open(abs_path, ReadOnly=True)
+
+        # Save as DOCX (format 16 = wdFormatXMLDocument)
+        tmp_docx = os.path.join(tmp_dir, 'converted.docx')
+        doc.SaveAs2(tmp_docx, FileFormat=16)
+        doc.Close(False)
+        doc = None
+
+        return extract_text_from_docx(Path(tmp_docx))
+    finally:
+        if doc:
+            try:
+                doc.Close(False)
+            except Exception:
+                pass
+        if word:
+            try:
+                word.Quit()
+            except Exception:
+                pass
+
+
+def _convert_doc_via_soffice(doc_path, tmp_dir):
+    """Convert .doc to .docx using LibreOffice headless, then extract."""
+    result = subprocess.run(
+        [SOFFICE_PATH, '--headless', '--convert-to', 'docx',
+         '--outdir', tmp_dir, str(doc_path)],
+        capture_output=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode('utf-8', errors='replace')
+        print(f"  [ERROR] LibreOffice conversion failed: {stderr}")
+        return None
+
+    converted_files = list(Path(tmp_dir).glob('*.docx'))
+    if not converted_files:
+        print("  [ERROR] LibreOffice produced no output file")
+        return None
+
+    return extract_text_from_docx(converted_files[0])
+
+
 def extract_text_from_djvu(djvu_path):
     """Extract text content from DJVU file using djvutxt"""
     if not DJVU_AVAILABLE:
@@ -470,7 +719,7 @@ def extract_text_from_djvu(djvu_path):
 
 
 def convert_file_to_md(file_path, output_dir):
-    """Convert a single file (EPUB, PDF, FB2, or DJVU) to Markdown"""
+    """Convert a single file (EPUB, PDF, FB2, DJVU, DOC, or DOCX) to Markdown"""
     file_name = file_path.name
     file_ext = file_path.suffix.lower()
 
@@ -485,6 +734,10 @@ def convert_file_to_md(file_path, output_dir):
         markdown_content = extract_text_from_fb2(file_path)
     elif file_ext == '.djvu':
         markdown_content = extract_text_from_djvu(file_path)
+    elif file_ext == '.docx':
+        markdown_content = extract_text_from_docx(file_path)
+    elif file_ext == '.doc':
+        markdown_content = extract_text_from_doc(file_path)
     else:
         print(f"  [SKIP] Unsupported file type: {file_ext}")
         return False
@@ -511,22 +764,25 @@ def main():
     current_dir = Path.cwd()
 
     # Check if at least one library is available
-    if not EPUB_AVAILABLE and not PDF_AVAILABLE and not FB2_AVAILABLE and not DJVU_AVAILABLE:
+    if not EPUB_AVAILABLE and not PDF_AVAILABLE and not FB2_AVAILABLE and not DJVU_AVAILABLE and not DOCX_AVAILABLE:
         print("\nERROR: No conversion libraries available!")
         print("Install at least one of the following:")
-        print("  - For EPUB: pip install ebooklib html2text")
-        print("  - For PDF:  pip install pymupdf")
-        print("  - For FB2:  pip install lxml")
-        print("  - For DJVU: winget install DjVuLibre.DjView")
+        print("  - For EPUB:     pip install ebooklib html2text")
+        print("  - For PDF:      pip install pymupdf")
+        print("  - For FB2:      pip install lxml")
+        print("  - For DOC/DOCX: pip install python-docx")
+        print("  - For DJVU:     winget install DjVuLibre.DjView")
         sys.exit(1)
 
     print("=" * 70)
-    print("EPUB/PDF/FB2/DJVU to Markdown Converter")
+    print("EPUB/PDF/FB2/DJVU/DOC/DOCX to Markdown Converter")
     print("=" * 70)
     print(f"Working directory: {current_dir}")
     print(f"EPUB support: {'YES' if EPUB_AVAILABLE else 'NO'}")
     print(f"PDF support:  {'YES' if PDF_AVAILABLE else 'NO'}")
     print(f"FB2 support:  {'YES' if FB2_AVAILABLE else 'NO'}")
+    print(f"DOCX support: {'YES' if DOCX_AVAILABLE else 'NO'}")
+    print(f"DOC support:  {'YES' if DOC_AVAILABLE else 'NO'}")
     print(f"DJVU support: {'YES' if DJVU_AVAILABLE else 'NO'}")
     print("-" * 70)
 
@@ -550,6 +806,18 @@ def main():
         files_to_convert.extend(fb2_files)
         if fb2_files:
             print(f"Found {len(fb2_files)} FB2 file(s)")
+
+    if DOCX_AVAILABLE:
+        docx_files = list(current_dir.glob("*.docx"))
+        files_to_convert.extend(docx_files)
+        if docx_files:
+            print(f"Found {len(docx_files)} DOCX file(s)")
+
+    if DOC_AVAILABLE:
+        doc_files = list(current_dir.glob("*.doc"))
+        files_to_convert.extend(doc_files)
+        if doc_files:
+            print(f"Found {len(doc_files)} DOC file(s)")
 
     if DJVU_AVAILABLE:
         djvu_files = list(current_dir.glob("*.djvu"))

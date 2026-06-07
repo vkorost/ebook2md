@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['ebook2md.py'],
+    ['c:/GitHub/ebook2md/ebook2md.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -10,12 +10,13 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'torchvision', 'torchaudio', 'scipy', 'numpy', 'pandas',
-              'sklearn', 'matplotlib', 'PIL', 'tensorflow', 'transformers',
-              'pytest', 'pygments', 'sqlalchemy', 'cryptography', 'bcrypt',
-              'onnxruntime', 'lightning', 'yt_dlp', 'av', 'fsspec',
-              'uvicorn', 'websockets', 'anyio', 'jsonschema', 'opentelemetry',
-              'grpc', 'openpyxl', 'win32com'],
+    excludes=[
+        'numpy', 'pandas', 'scipy', 'matplotlib', 'tkinter',
+        'PyQt5', 'PyQt6', 'PySide2', 'PySide6', 'wx',
+        'PIL', 'Pillow', 'cv2', 'torch', 'tensorflow',
+        'pytest', 'unittest', 'setuptools', 'pip', 'wheel',
+        'IPython', 'notebook', 'jupyter',
+    ],
     noarchive=False,
     optimize=0,
 )
