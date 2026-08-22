@@ -96,6 +96,75 @@ if not DJVU_AVAILABLE:
     print("To enable DJVU support, install DjVuLibre: winget install DjVuLibre.DjView")
 
 
+# Set by --aggressive-page-numbers. When True, any line consisting solely of
+# digits is removed, which is the pre-2026 behaviour. It destroys data in any
+# document where a bare number is content rather than pagination (lab results,
+# tables, statistics, numbered lists), so it is opt-in.
+AGGRESSIVE_PAGE_NUMBERS = False
+
+# Page numbers that are unambiguous because of their decoration, e.g.
+# "- 12 -", "[12]", "Page 12", "Page 12 of 340", "12 / 340".
+_DECORATED_PAGE_NUMBER = re.compile(
+    r"""^\s*(?:
+          [-–—\[(]\s*\d{1,4}\s*[-–—\])]
+        | [Pp]age\s+\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?
+        | \d{1,4}\s*/\s*\d{1,4}
+        )\s*$""",
+    re.VERBOSE,
+)
+
+
+# How close to the top or bottom of a page a bare integer must sit, counted
+# in non-empty lines, before we will accept it as a page number.
+_PAGE_NUMBER_EDGE_LINES = 2
+
+
+def strip_page_numbers(text, page_number=None):
+    """Remove page-number lines without destroying numeric content.
+
+    A bare line of digits is only a page number if we can show it is one.
+    Decorated forms ("- 12 -", "Page 12 of 340") are always safe to drop. A
+    bare integer is dropped only when all of the following hold:
+
+    * ``page_number`` is known, i.e. the caller is working page by page;
+    * the line equals that page number;
+    * the line sits within the first or last few non-empty lines of the page,
+      which is where running heads and feet live.
+
+    The edge test matters. Without it, any stray digit that happens to equal
+    the page number is deleted -- on real lab reports that included the
+    orphaned superscript of "mL/min/1.73m^2" on page 2.
+
+    Anything not proven to be pagination is kept. The previous behaviour
+    deleted every standalone integer, which silently removed real values: on
+    a corpus of 18 lab-report PDFs it destroyed 246 measurements, including
+    entire results such as ferritin, eGFR and total testosterone.
+    """
+    lines = text.split("\n")
+
+    # Indices of non-empty lines, so "near the edge" ignores blank padding.
+    filled = [i for i, ln in enumerate(lines) if ln.strip()]
+    edge = set(filled[:_PAGE_NUMBER_EDGE_LINES] + filled[-_PAGE_NUMBER_EDGE_LINES:])
+
+    out = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped:
+            if _DECORATED_PAGE_NUMBER.match(stripped):
+                continue
+            if stripped.isdigit():
+                if AGGRESSIVE_PAGE_NUMBERS:
+                    continue
+                if (
+                    page_number is not None
+                    and int(stripped) == page_number
+                    and i in edge
+                ):
+                    continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def clean_filename(filename):
     """Clean filename for use as markdown file name"""
     # Remove file extension
@@ -141,7 +210,10 @@ def extract_text_from_epub(epub_path):
 
                 # Clean up the markdown
                 markdown_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', markdown_text)  # Remove excessive newlines
-                markdown_text = re.sub(r'^\s+|\s+$', '', markdown_text, flags=re.MULTILINE)  # Trim whitespace
+                # Trim horizontal whitespace only. A bare \s+$ under MULTILINE
+                # also consumes the newlines themselves, joining adjacent lines
+                # and paragraphs into a single unbroken run of text.
+                markdown_text = re.sub(r'^[^\S\n]+|[^\S\n]+$', '', markdown_text, flags=re.MULTILINE)
 
                 # Remove table of contents links and improve formatting
                 markdown_text = re.sub(r'\[[^\]]*\]\([^\)]*\.html[^\)]*\)', '', markdown_text)  # Remove internal links
@@ -179,12 +251,15 @@ def extract_text_from_pdf(pdf_path):
         content.append(f"**Author:** {author}")
         content.append("")
 
-        # Extract text from all pages
+        # Extract text from all pages. Page numbers are stripped per page,
+        # while we still know which page we are on, so that a bare integer is
+        # only removed when it actually matches this page's number.
         full_text = ""
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             text = page.get_text()
             if text.strip():
+                text = strip_page_numbers(text, page_number=page_num + 1)
                 full_text += text + "\n\n"
 
         doc.close()
@@ -193,9 +268,7 @@ def extract_text_from_pdf(pdf_path):
         # Remove excessive whitespace
         full_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', full_text)
         # Remove leading/trailing whitespace from lines
-        full_text = re.sub(r'^\s+|\s+$', '', full_text, flags=re.MULTILINE)
-        # Remove page numbers that appear alone on lines
-        full_text = re.sub(r'\n\s*\d+\s*\n', '\n', full_text)
+        full_text = re.sub(r'^[^\S\n]+|[^\S\n]+$', '', full_text, flags=re.MULTILINE)
         # Remove headers/footers that repeat
         lines = full_text.split('\n')
         cleaned_lines = []
@@ -682,9 +755,19 @@ def extract_text_from_djvu(djvu_path):
         # Remove excessive whitespace
         full_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', full_text)
         # Remove leading/trailing whitespace from lines
-        full_text = re.sub(r'^\s+|\s+$', '', full_text, flags=re.MULTILINE)
-        # Remove page numbers that appear alone on lines
-        full_text = re.sub(r'\n\s*\d+\s*\n', '\n', full_text)
+        full_text = re.sub(r'^[^\S\n]+|[^\S\n]+$', '', full_text, flags=re.MULTILINE)
+        # Remove page numbers. djvutxt separates pages with a form feed when
+        # it emits one; if it does, we know each page's number and can drop a
+        # matching bare integer. Otherwise only decorated forms are removed,
+        # so that real numeric content survives.
+        if '\f' in full_text:
+            pages = full_text.split('\f')
+            full_text = '\n'.join(
+                strip_page_numbers(pg, page_number=i)
+                for i, pg in enumerate(pages, 1)
+            )
+        else:
+            full_text = strip_page_numbers(full_text)
 
         # Remove headers/footers that repeat
         lines = full_text.split('\n')
@@ -761,6 +844,26 @@ def convert_file_to_md(file_path, output_dir):
 
 def main():
     """Main conversion function"""
+    global AGGRESSIVE_PAGE_NUMBERS
+
+    args = set(sys.argv[1:])
+    if args & {"-h", "--help"}:
+        print("Usage: ebook2md [--aggressive-page-numbers]")
+        print()
+        print("Converts every EPUB/PDF/FB2/DJVU/DOC/DOCX in the current")
+        print("directory to Markdown.")
+        print()
+        print("  --aggressive-page-numbers")
+        print("        Delete every line that consists only of digits.")
+        print("        UNSAFE: this removes real values from documents where a")
+        print("        bare number is content rather than pagination, such as")
+        print("        lab reports, tables and statistics. Off by default.")
+        return
+    if "--aggressive-page-numbers" in args:
+        AGGRESSIVE_PAGE_NUMBERS = True
+        print("WARNING: --aggressive-page-numbers is on; every digits-only line")
+        print("         will be deleted, including real numeric values.")
+
     current_dir = Path.cwd()
 
     # Check if at least one library is available

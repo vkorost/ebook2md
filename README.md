@@ -22,7 +22,7 @@ LLMs like Claude can process ebooks directly, but you pay for every token of raw
 - **Batch Processing**: Converts all supported files in the current directory in one run
 - **Graceful Degradation**: Missing libraries are detected at startup; unsupported formats are skipped with a warning
 - **Metadata Extraction**: Title and author are pulled from file metadata (EPUB, PDF, FB2) or parsed from the filename (DJVU)
-- **Markdown Cleanup**: Strips excessive whitespace, duplicate headers/footers, lone page numbers, and internal navigation links
+- **Markdown Cleanup**: Strips excessive whitespace, duplicate headers/footers, page numbers, and internal navigation links, without destroying numeric content (see [Page numbers and numeric content](#page-numbers-and-numeric-content))
 - **Heading Detection**: Automatically promotes ALL-CAPS lines and numbered sections to Markdown headings (PDF, DJVU)
 - **FB2 Structure Preservation**: Converts sections, epigraphs, citations, poems, emphasis, and strong markup to proper Markdown
 - **DOCX Structure Preservation**: Converts headings, bold/italic, lists, block quotes, and tables to proper Markdown
@@ -83,6 +83,34 @@ Each converted file includes:
 - Title (from metadata or filename)
 - Author (from metadata or filename pattern `Author - Title`)
 - Full content in Markdown format
+
+## Page numbers and numeric content
+
+Removing running page numbers is easy to get wrong. Deleting every line that
+contains only digits also deletes real values, because plenty of documents put
+a bare number on its own line as content: lab results, statistical tables,
+numbered lists, years.
+
+This script only removes a bare integer when it can show the number is
+pagination:
+
+- decorated forms are always removed: `- 12 -`, `[12]`, `Page 12`,
+  `Page 12 of 340`, `12 / 340`;
+- a bare integer is removed only if it equals the number of the page it was
+  found on **and** sits within the first or last couple of non-empty lines of
+  that page, where running heads and feet live.
+
+Anything else is kept.
+
+If you want the old, indiscriminate behaviour, pass
+`--aggressive-page-numbers`. It deletes every digits-only line and will remove
+real data from any document where numbers are content. It is off by default
+for that reason.
+
+> Earlier versions applied the indiscriminate rule unconditionally. On a
+> corpus of 18 lab-report PDFs it silently deleted 246 measurements, whole
+> results among them. If you converted numeric documents with an older
+> version, reconvert them.
 
 ## Limitations
 
