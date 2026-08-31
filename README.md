@@ -28,6 +28,7 @@ LLMs like Claude can process ebooks directly, but you pay for every token of raw
 - **DOCX Structure Preservation**: Converts headings, bold/italic, lists, block quotes, and tables to proper Markdown
 - **DOC via MS Word or LibreOffice**: Legacy `.doc` files are converted to `.docx` via MS Word COM automation (preferred) or LibreOffice headless (fallback)
 - **DJVU Non-ASCII Handling**: Transparently copies files with non-ASCII filenames to a temp path so `djvutxt` can process them
+- **No Silent Gaps**: PDFs and DJVUs whose content is locked in page images are reported, not quietly written out as a stub (see [Limitations](#limitations))
 - **Simple Output**: Creates `.md` files with the same base filename as the source -- no chunking, no subdirectories
 
 ## Installation
@@ -114,9 +115,29 @@ for that reason.
 
 ## Limitations
 
-This script extracts **existing text** from source files. It does not perform OCR. Scanned PDFs and image-only DJVUs that contain no embedded text layer will produce empty output and be skipped.
+This script extracts the **existing text layer** of a source file. It does not
+perform OCR, and deliberately so: no OCR engine is what keeps ebook2md small,
+fast, and dependency-light. Content that exists only as pixels in a page image
+cannot be recovered here.
 
-For scanned PDFs that require OCR, see [pdf2md](https://github.com/vkorost/pdf2md).
+The risk with that is silence. A scanned PDF still opens fine and still has
+metadata, so a naive converter writes a title-and-author stub and reports
+success -- and you only discover the book is missing when you read the `.md`.
+ebook2md says so instead:
+
+| Source | Behaviour |
+|---|---|
+| No text layer at all | `[WARN] No text layer found`, no `.md` written, counted as failed |
+| Text on under 80% of pages | `[WARN] Only N of M pages carry a text layer`, `.md` written from what is there |
+| Full text layer | Converted normally, no warning |
+
+Both warnings name [pdf2md](https://github.com/vkorost/pdf2md), the sister
+project, which routes image pages to an OCR engine. That is the tool for
+scanned documents; ebook2md stays lightweight.
+
+Note that a *partly* scanned PDF is still converted -- the pages that have text
+are worth having. The warning exists because the output alone gives no hint
+that the other pages were ever there.
 
 ## Notes
 
@@ -124,7 +145,7 @@ For scanned PDFs that require OCR, see [pdf2md](https://github.com/vkorost/pdf2m
 - Original files are never modified or deleted
 - Conversion runs in the current working directory
 - Special characters in filenames are handled automatically
-- DJVU files without a text layer (image-only scans) will be skipped with a warning
+- PDF and DJVU files without a text layer (image-only scans) are skipped with a warning; partly scanned PDFs are converted with a warning naming how many pages were readable
 
 ## Troubleshooting
 
@@ -134,8 +155,16 @@ Install at least one set of dependencies (see Installation above).
 ### "No supported files found"
 Make sure the script is running in a directory that contains `.epub`, `.pdf`, `.fb2`, `.djvu`, `.doc`, or `.docx` files.
 
-### DJVU: "No text layer found"
-The DJVU file is an image-only scan with no embedded OCR text. You will need to OCR it first.
+### PDF or DJVU: "No text layer found"
+The file is an image-only scan with no embedded text. ebook2md has no OCR;
+convert it with [pdf2md](https://github.com/vkorost/pdf2md) instead, which
+renders the pages and passes them to an OCR engine.
+
+### PDF: "Only N of M pages carry a text layer"
+The PDF mixes born-digital pages with scanned ones. The `.md` holds the text
+pages only; the scanned pages' content is absent. Run it through
+[pdf2md](https://github.com/vkorost/pdf2md) if you need all of it -- its mixed
+route text-extracts the text pages and OCRs the image pages.
 
 ### Permission errors
 Make sure you have write permissions in the directory.

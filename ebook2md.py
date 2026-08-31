@@ -119,6 +119,28 @@ _DECORATED_PAGE_NUMBER = re.compile(
 _PAGE_NUMBER_EDGE_LINES = 2
 
 
+# ebook2md reads the text layer a document already carries; it deliberately
+# ships no OCR engine, which is what keeps it small and fast. A scanned PDF
+# therefore has no content to give us, and a part-scanned one gives us only
+# some of it -- with nothing in the output to mark the gap. Say so rather than
+# writing a stub file and reporting success.
+#
+# A page carrying fewer than this many characters is treated as an image.
+# Matches the threshold pdf2md's router uses for the same decision.
+MIN_PAGE_CHARS = 50
+
+# Warn when the text layer covers less than this share of the pages. Set below
+# 1.0 so that ordinary blank leaves and full-page plates do not trip it.
+MIN_TEXT_PAGE_RATIO = 0.8
+
+# Shown whenever a PDF's content is partly or wholly locked in page images.
+NO_OCR_HINT = (
+    "         ebook2md has no OCR by design. For scanned PDFs use pdf2md\n"
+    "         (https://github.com/vkorost/pdf2md), which routes image pages\n"
+    "         to an OCR engine."
+)
+
+
 def strip_page_numbers(text, page_number=None):
     """Remove page-number lines without destroying numeric content.
 
@@ -255,14 +277,36 @@ def extract_text_from_pdf(pdf_path):
         # while we still know which page we are on, so that a bare integer is
         # only removed when it actually matches this page's number.
         full_text = ""
-        for page_num in range(len(doc)):
+        page_count = len(doc)
+        text_pages = 0
+        for page_num in range(page_count):
             page = doc.load_page(page_num)
             text = page.get_text()
             if text.strip():
+                if len(text.strip()) >= MIN_PAGE_CHARS:
+                    text_pages += 1
                 text = strip_page_numbers(text, page_number=page_num + 1)
                 full_text += text + "\n\n"
 
         doc.close()
+
+        # No text layer at all: there is nothing here we can convert, and a
+        # title-and-author stub would look like a successful conversion.
+        if not full_text.strip():
+            print("  [WARN] No text layer found in PDF (may be image-only scan)")
+            print(NO_OCR_HINT)
+            return None
+
+        # Some pages have text and some do not. We can convert what is there,
+        # but the scanned pages leave a hole in the output that nothing else
+        # would announce.
+        if page_count and text_pages < page_count * MIN_TEXT_PAGE_RATIO:
+            print(
+                f"  [WARN] Only {text_pages} of {page_count} pages carry a text "
+                f"layer; the remaining pages are probably scanned images and "
+                f"their content is missing from the output."
+            )
+            print(NO_OCR_HINT)
 
         # Clean up the text
         # Remove excessive whitespace
